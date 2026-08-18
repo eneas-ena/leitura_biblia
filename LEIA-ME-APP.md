@@ -25,7 +25,8 @@ Settings → API traz os dois valores.
 | `index.html` | O app inteiro |
 | `manifest.json` | Instalação como aplicativo |
 | `sw.js` | Funcionamento offline |
-| `icone-192.png` · `icone-512.png` | Ícones |
+| `icone-192.png` · `icone-512.png` | Ícones do aplicativo |
+| `favicon.ico` · `apple-touch-icon.png` | Ícone da aba e da tela de início |
 
 **4. Ative o GitHub Pages.** Settings → Pages → Source: `Deploy from a branch`,
 branch `main`, pasta `/ (root)`. Em um ou dois minutos o endereço aparece na mesma tela.
@@ -54,10 +55,20 @@ Se você viajar uma semana, volta de onde parou em vez de encontrar sete dias em
 **Planos** — os três planos anuais e os nove percursos temáticos, separados. Só as trilhas
 com `cobertura_completa` aparecem como "A Bíblia inteira em um ano".
 
-**Buscar** — busca em português no texto completo, com as palavras destacadas.
+**Buscar** — dois modos no mesmo campo. Digite palavras e ele procura no texto completo,
+destacando os termos. Digite uma referência e ele oferece o atalho direto:
+`Jo 3:16`, `salmo 23`, `1co 13`, `I Coríntios 13`, `cantares 2`, `ap 22`.
+Abre o capítulo e rola até o versículo, com um realce que some sozinho.
+
+Quando a abreviação é ambígua, o app mostra as duas opções em vez de escolher por você —
+`jo` traz João e Jó, nessa ordem. Digitando o acento (`jó`) a ordem se inverte.
+
 Vale trocar de versão: as três traduzem de modo bem diferente.
 
-**Marcações** — destaques em três cores e anotações por versículo.
+**Marcações** — **toque em cima de um versículo** durante a leitura para abrir a gaveta
+com as três cores e o campo de anotação. Não confunda com o botão "Marcar como lido",
+que só registra o dia do plano. Versículos com anotação ficam sublinhados em pontilhado
+dourado, e tudo aparece reunido na aba Marcações.
 
 ### O corte do livro
 
@@ -68,8 +79,9 @@ ou adiantar quando sobrar tempo.
 
 ### Três temas de leitura
 
-O botão no canto superior direito alterna entre **papel**, **sépia** e **noite**.
-O botão `Aa` dentro da leitura ajusta o tamanho do texto e guarda a preferência.
+No canto superior direito ficam os dois controles de leitura, lado a lado:
+**Aa** percorre cinco tamanhos de texto e o botão de lua alterna entre **papel**,
+**sépia** e **noite**. As duas preferências valem para o app inteiro e ficam guardadas.
 
 ---
 

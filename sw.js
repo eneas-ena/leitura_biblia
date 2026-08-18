@@ -1,11 +1,15 @@
 /* Leitura da Bíblia — service worker
-   Casca do app em cache; dados sempre da rede (com resposta guardada
-   para leitura offline do que já foi aberto). */
-const VERSAO = 'leitura-v1';
-const CASCA = ['./', './index.html', './manifest.json', './icone-192.png', './icone-512.png'];
+   Rede primeiro para o HTML (atualizações aparecem na hora),
+   cache como reserva quando estiver offline. */
+const VERSAO = 'leitura-v3';
+const CASCA = ['./', './index.html', './manifest.json', './icone-192.png', './icone-512.png', './favicon.ico', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSAO).then(c => c.addAll(CASCA)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(VERSAO)
+      .then(c => c.addAll(CASCA))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', e => {
@@ -17,11 +21,17 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+  const ehDocumento = e.request.mode === 'navigate'
+    || e.request.destination === 'document'
+    || url.pathname.endsWith('.html');
 
-  // Supabase e fontes: rede primeiro, cache como rede reserva
-  if (url.hostname.endsWith('supabase.co') || url.hostname.includes('fonts.') || url.hostname.includes('esm.sh')) {
+  // HTML, Supabase, fontes e módulos: rede primeiro
+  if (ehDocumento
+      || url.hostname.endsWith('supabase.co')
+      || url.hostname.includes('fonts.')
+      || url.hostname.includes('esm.sh')) {
     e.respondWith(
       fetch(e.request)
         .then(r => {
@@ -29,11 +39,11 @@ self.addEventListener('fetch', e => {
           caches.open(VERSAO).then(c => c.put(e.request, copia));
           return r;
         })
-        .catch(() => caches.match(e.request))
+        .catch(() => caches.match(e.request).then(r => r || caches.match('./index.html')))
     );
     return;
   }
 
-  // Casca: cache primeiro
+  // Ícones e demais estáticos: cache primeiro
   e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
 });
