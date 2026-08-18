@@ -235,6 +235,11 @@ mark{background:rgba(230,168,23,.4);color:inherit;border-radius:2px}
    ============================================================ */
 const SUPABASE_URL  = 'https://gehoznuzimebjdqxhtia.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_20sQUl-09hCzCcfUtbBYmw_hqEmZBaJ';
+
+/* Criação de temas por IA. Deixe WORKER_URL vazio para desligar o recurso —
+   o app continua funcionando, só sem o botão de criar tema. */
+const WORKER_URL    = '';   // ex.: 'https://leitura-temas.SEU-USUARIO.workers.dev'
+const WORKER_TOKEN  = '';   // o mesmo valor de APP_TOKEN no Worker
 /* ============================================================ */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -427,13 +432,14 @@ const proximoDia = ()=> {
    ============================================================ */
 const ICONES = {
   hoje:'<path d="M8 2v3M16 2v3M3.5 9h17M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z"/>',
+  temas:'<path d="M12 3l2.4 5.4L20 9l-4 4 1 6-5-2.8L7 19l1-6-4-4 5.6-.6z"/>',
   ler:'<path d="M2 4.5h7a3 3 0 013 3v12a2.5 2.5 0 00-2.5-2.5H2zM22 4.5h-7a3 3 0 00-3 3v12a2.5 2.5 0 012.5-2.5H22z"/>',
   planos:'<path d="M3 6h18M3 12h18M3 18h12"/><circle cx="19.5" cy="18" r="1.6"/>',
   buscar:'<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/>',
   eu:'<path d="M6 3h12a1 1 0 011 1v17l-7-4-7 4V4a1 1 0 011-1z"/>',
 };
 function navegacao(){
-  const abas = [['hoje','Hoje'],['ler','Ler'],['planos','Planos'],['buscar','Buscar'],['eu','Marcações']];
+  const abas = [['hoje','Hoje'],['ler','Ler'],['temas','Temas'],['buscar','Buscar'],['eu','Marcações']];
   $('#nav').hidden = false;
   $('#nav').innerHTML = abas.map(([id,nome])=>`
     <button data-aba="${id}" ${S.aba===id?'aria-current="page"':''}>
@@ -472,7 +478,7 @@ async function telaHoje(){
       em um ano ou fazer um percurso temático mais curto.</p>
       <div style="margin-top:22px"><button class="btn" id="ir-planos">Escolher um plano</button></div>
     </div></div>`;
-    $('#ir-planos').onclick = ()=>{ S.aba='planos'; rotear(); };
+    $('#ir-planos').onclick = ()=>{ S.aba='temas'; rotear(); };
     return;
   }
 
@@ -740,7 +746,7 @@ async function lerCapitulo(livroId, cap, versiculo){
 
 /* ---------- PLANOS ---------- */
 async function telaPlanos(){
-  topo('Planos'); carregando();
+  topo('Planos anuais', ()=>{ S.aba='temas'; rotear(); }); carregando();
   const { data:planos } = await sb.from('planos').select('*, trilhas(*)');
   await carregarPlanoAtivo();
   const completos = planos.filter(p=>p.trilhas?.cobertura_completa);
@@ -760,13 +766,9 @@ async function telaPlanos(){
       — mas o progresso fica guardado.</div>`:''}
     <div class="cartao">
       <span class="rotulo">A Bíblia inteira em um ano</span>
-      <div style="margin-top:8px">${completos.map(cartao).join('')}</div>
-    </div>
-    <div class="cartao">
-      <span class="rotulo">Percursos temáticos</span>
       <p style="font-size:.88rem;color:var(--texto2);margin:6px 0 4px">
-        Estudos curtos, uma passagem por dia.</p>
-      <div style="margin-top:6px">${percursos.map(cartao).join('')}</div>
+        As três ordens cobrem os 66 livros por inteiro.</p>
+      <div style="margin-top:6px">${completos.map(cartao).join('')}</div>
     </div>
   </div>`;
 
@@ -801,6 +803,170 @@ function confirmarPlano(p){
       fecharFolha(); S.aba='hoje'; rotear();
     }catch(e){ $('#comecar').disabled=false; alert('Não foi possível iniciar o plano.'); }
   };
+}
+
+
+/* ---------- TEMAS ---------- */
+async function telaTemas(){
+  topo('Temas'); carregando();
+  const { data:planos } = await sb.from('planos').select('*, trilhas(*)');
+  await carregarPlanoAtivo();
+  const percursos = (planos||[])
+    .filter(p=>!p.trilhas?.cobertura_completa)
+    .sort((a,b)=>(a.trilhas?.ordem_exibicao||0)-(b.trilhas?.ordem_exibicao||0));
+  const temIA = !!(WORKER_URL && WORKER_TOKEN);
+
+  el.innerHTML = `<div class="container">
+    ${S.planoAtivo?`<div class="aviso">Em andamento:
+      <strong>${esc(S.planoAtivo.planos.nome)}</strong>. Ao começar outro, este é encerrado
+      — mas o progresso fica guardado.</div>`:''}
+
+    <div class="cartao">
+      <span class="rotulo">Criar um tema</span>
+      ${temIA?`
+        <p style="font-size:.9rem;color:var(--texto2);margin:8px 0 12px">
+          Escreva o tema que você quer percorrer. As passagens são conferidas
+          contra o texto antes de aparecerem.</p>
+        <input id="tema" placeholder="Ex.: O amor de Deus" autocomplete="off">
+        <button class="btn" id="propor" style="margin-top:12px">Propor passagens</button>
+        <div id="proposta"></div>`
+      :`<p style="font-size:.9rem;color:var(--texto2);margin:8px 0 0">
+          Recurso desligado. Para ativar, preencha <code>WORKER_URL</code> e
+          <code>WORKER_TOKEN</code> no começo do index.html.</p>`}
+    </div>
+
+    <div class="cartao">
+      <span class="rotulo">Percursos</span>
+      <p style="font-size:.88rem;color:var(--texto2);margin:6px 0 4px">
+        Estudos curtos, uma passagem por dia.</p>
+      <div style="margin-top:6px">${percursos.map(p=>`
+        <button class="item" data-plano="${p.id}">
+          <span class="principal">
+            <span class="titulo">${esc(p.trilhas?.nome||p.nome)}</span>
+            <span class="desc">${esc(p.trilhas?.descricao||'')}</span>
+          </span>
+          <span class="marca">${p.dias} dias</span>
+        </button>`).join('')}</div>
+    </div>
+
+    <button class="btn btn-linha" id="anuais">Planos anuais</button>
+  </div>`;
+
+  el.querySelectorAll('[data-plano]').forEach(b=>{
+    b.onclick = ()=>confirmarPlano(planos.find(p=>p.id===Number(b.dataset.plano)));
+  });
+  $('#anuais').onclick = ()=>{ S.aba='planos'; rotear(); };
+
+  if(temIA){
+    const inp = $('#tema');
+    $('#propor').onclick = ()=>proporTema(inp.value.trim());
+    inp.onkeydown = e=>{ if(e.key==='Enter') proporTema(inp.value.trim()); };
+  }
+}
+
+async function chamarWorker(rota, corpo){
+  const r = await fetch(WORKER_URL.replace(/\/+$/,'') + rota, {
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-app-token':WORKER_TOKEN},
+    body: JSON.stringify(corpo),
+  });
+  const d = await r.json();
+  if(!r.ok || d.erro) throw new Error(d.erro || ('Falha ' + r.status));
+  return d;
+}
+
+async function proporTema(tema){
+  if(tema.length<3) return;
+  const alvo = $('#proposta');
+  $('#propor').disabled = true;
+  alvo.innerHTML = '<div class="carregando">Procurando nas Escrituras</div>';
+  try{
+    const p = await chamarWorker('/sugerir', { tema });
+    if(!p.viavel){
+      alvo.innerHTML = `<div class="aviso" style="margin-top:16px">
+        ${esc(p.observacao || 'Não consegui montar um percurso confiável para este tema.')}
+        ${p.itens?.length?` Só ${p.itens.length} passagens sobreviveram à conferência —
+        poucas para um percurso.`:''}
+        <br><br>Tente algo mais específico, como "A fidelidade de Deus na aliança"
+        em vez de "Deus".</div>`;
+      $('#propor').disabled = false;
+      return;
+    }
+    S.proposta = p;
+    alvo.innerHTML = `
+      <div style="margin-top:20px;border-top:1px solid var(--linha);padding-top:16px">
+        <span class="rotulo">Proposta</span>
+        <h2 class="cinzel" style="font-size:1.05rem;color:var(--tinta2);margin:8px 0 4px">
+          ${esc(p.nome)}</h2>
+        <p style="color:var(--texto2);font-size:.92rem;margin:0 0 10px">${esc(p.descricao)}</p>
+        <p><span class="chip">${p.dias} dias</span><span class="chip">${p.versiculos} versículos</span></p>
+        ${p.observacao?`<div class="aviso">${esc(p.observacao)}</div>`:''}
+        ${p.descartados?.length?`<p style="font-size:.85rem;color:var(--texto3);margin:10px 0 0">
+          ${p.descartados.length} referência${p.descartados.length>1?'s foram descartadas':' foi descartada'}
+          por não existir${p.descartados.length>1?'em':''} no texto:
+          ${p.descartados.map(d=>esc(d.ref)).join(', ')}.</p>`:''}
+        <div style="margin-top:12px">
+          ${p.itens.map((i,n)=>`<button class="item" data-prev="${n}">
+            <span class="principal">
+              <span class="titulo">${esc(i.rotulo)}</span>
+              <span class="desc">${esc(i.ref_limpa)} &middot; ${i.qtd} versículos</span>
+            </span>
+            <span class="marca">ver</span>
+          </button>`).join('')}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
+          <button class="btn btn-ouro" id="salvar-tema">Criar este percurso</button>
+          <button class="btn btn-linha" id="descartar">Descartar</button>
+        </div>
+      </div>`;
+
+    alvo.querySelectorAll('[data-prev]').forEach(b=>{
+      b.onclick = ()=>espiar(p.itens[Number(b.dataset.prev)]);
+    });
+    $('#descartar').onclick = ()=>{ alvo.innerHTML=''; $('#propor').disabled=false; };
+    $('#salvar-tema').onclick = async ()=>{
+      $('#salvar-tema').disabled = true;
+      $('#salvar-tema').textContent = 'Criando';
+      try{
+        await chamarWorker('/criar', {
+          nome:p.nome, descricao:p.descricao,
+          itens:p.itens.map(i=>({ref:i.ref, rotulo:i.rotulo})),
+        });
+        S.aba='temas'; rotear();
+      }catch(e){
+        $('#salvar-tema').disabled=false;
+        $('#salvar-tema').textContent='Criar este percurso';
+        alert('Não foi possível criar: '+e.message);
+      }
+    };
+  }catch(e){
+    alvo.innerHTML = `<div class="aviso" style="margin-top:16px">${esc(e.message)}</div>`;
+    $('#propor').disabled = false;
+  }
+}
+
+async function espiar(item){
+  folha('<div class="carregando">Buscando o texto</div>');
+  try{
+    const r = await sb.rpc('validar_refs', { p_refs:[item.ref] });
+    const c = r.data?.[0];
+    if(!c?.ok) throw new Error('Referência não encontrada.');
+    const { data } = await sb.from('versiculos')
+      .select('capitulo,versiculo,texto').eq('versao_id', S.versao)
+      .eq('livro_id', c.livro_id)
+      .gte('capitulo', c.cap_ini).lte('capitulo', c.cap_fim)
+      .order('capitulo').order('versiculo');
+    const versos = (data||[]).filter(v=>
+      (v.capitulo>c.cap_ini || v.versiculo>=c.vers_ini) &&
+      (v.capitulo<c.cap_fim || v.versiculo<=c.vers_fim));
+    folha(`
+      <span class="rotulo">${esc(c.ref_limpa)}</span>
+      <h2 class="cinzel" style="font-size:1rem;color:var(--tinta2);margin:8px 0 12px">
+        ${esc(item.rotulo)}</h2>
+      <p class="leitura" style="font-size:1rem;padding:0">
+        ${versos.map(v=>`<span class="v"><span class="v-num">${v.versiculo}</span>${esc(v.texto)}</span> `).join('')}
+      </p>`);
+  }catch(e){ folha(`<div class="aviso">${esc(e.message)}</div>`); }
 }
 
 /* ---------- BUSCAR ---------- */
@@ -1007,7 +1173,7 @@ function criarLeitor(){
       if(error) throw error;
       S.leitor = {id:data.id, nome:data.nome};
       guardar('leitor', S.leitor);
-      S.aba='planos'; navegacao(); rotear();
+      S.aba='temas'; navegacao(); rotear();
     }catch(e){ alert('Não foi possível criar o leitor. '+e.message); }
   };
 }
@@ -1017,7 +1183,8 @@ function criarLeitor(){
    ============================================================ */
 function rotear(){
   navegacao();
-  ({ hoje:telaHoje, ler:telaLer, planos:telaPlanos, buscar:telaBuscar, eu:telaEu }[S.aba])();
+  ({ hoje:telaHoje, ler:telaLer, temas:telaTemas, planos:telaPlanos,
+     buscar:telaBuscar, eu:telaEu }[S.aba])();
 }
 
 (async function iniciar(){
