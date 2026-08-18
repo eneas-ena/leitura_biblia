@@ -195,6 +195,10 @@ textarea{min-height:110px;resize:vertical;line-height:1.6}
   color:var(--tinta2);letter-spacing:.02em;line-height:1.45}
 [data-tema="noite"] .ref-dia{color:var(--tinta2)}
 mark{background:rgba(230,168,23,.4);color:inherit;border-radius:2px}
+.dica{font-family:'Cormorant Garamond',serif;font-size:.92rem;color:var(--texto3);
+  text-align:center;margin:10px 0 2px;font-style:italic}
+.v.alvo{background:rgba(230,168,23,.45);box-shadow:0 0 0 3px rgba(230,168,23,.45);
+  border-radius:3px}
 .pin-grade{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:280px;margin:24px auto}
 .pin-grade button{aspect-ratio:1.35;border:1px solid var(--linha);border-radius:12px;
   font-family:'Cormorant Garamond',serif;font-size:1.5rem;font-weight:600;background:var(--cartao)}
@@ -339,6 +343,63 @@ async function carregarMarcacoes(blocos){
 }
 
 const livro = id => S.livros.find(l=>l.id===id);
+
+/* --- referências: "Jo 3:16", "salmo 23", "1co 13", "gn 1" --- */
+const semAcento = t => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+const limpar    = t => semAcento(t).replace(/[\s.]+/g,'');
+/* nomes alternativos de uso corrente que não batem com o nome do banco */
+const APELIDOS = {
+  SNG:['cantares','cantaresdesalomao','canticodoscanticos','cantico'],
+  LAM:['lamentacoes'],
+  ACT:['atosdosapostolos'],
+  PHM:['filemon'],
+  REV:['apocalipsedejoao','apoc'],
+  ECC:['eclesiaste','coelet','qoelet'],
+  PRO:['proverbio'],
+  PSA:['salterio'],
+  SIR:[],
+};
+let IDX = null;
+function indiceLivros(){
+  if(IDX) return IDX;
+  IDX = S.livros.map(l=>({
+    l,
+    chaves:[...new Set([limpar(l.nome), limpar(l.abrev), ...(APELIDOS[l.code]||[])])],
+    // versões com acento, para privilegiar quem digita "Jó" em vez de "Jo"
+    acentuadas:[...new Set([
+      l.nome.toLowerCase().replace(/[\s.]+/g,''),
+      l.abrev.toLowerCase().replace(/[\s.]+/g,''),
+    ])],
+  }));
+  return IDX;
+}
+function acharLivros(txt){
+  const bruto = String(txt).trim().toLowerCase().replace(/[\s.]+/g,'');
+  const t = limpar(txt);
+  if(!t) return [];
+  const idx = indiceLivros();
+  let achados = idx.filter(x=>x.chaves.includes(t));
+  if(!achados.length) achados = idx.filter(x=>x.chaves.some(k=>k.startsWith(t)));
+  // quem casa com o acento digitado vem primeiro
+  achados.sort((a,b)=>{
+    const pa = a.acentuadas.some(k=>k.startsWith(bruto)) ? 0 : 1;
+    const pb = b.acentuadas.some(k=>k.startsWith(bruto)) ? 0 : 1;
+    return pa - pb;
+  });
+  return achados.map(x=>x.l);
+}
+function interpretarRef(q){
+  // "I Coríntios 13" e "II Timóteo 2" viram "1 ..." e "2 ..."
+  const normal = q.trim().replace(/^(iii|ii|i)\s+/i, m => ({i:'1',ii:'2',iii:'3'}[m.trim().toLowerCase()] + ' '));
+  const m = normal.match(/^(\d?\s*[^\d]+?)\s*(\d+)(?:\s*[:.\s]\s*(\d+))?\s*$/);
+  if(!m) return [];
+  const cap = Number(m[2]);
+  const vers = m[3] ? Number(m[3]) : null;
+  return acharLivros(m[1])
+    .filter(l => cap >= 1 && cap <= l.total_capitulos)
+    .slice(0,4)
+    .map(l => ({ livro:l, cap, vers }));
+}
 const proximoDia = ()=> {
   for(let d=1; d<=S.planoDias.length; d++) if(!S.diasLidos.has(d)) return d;
   return S.planoDias.length;
@@ -490,6 +551,7 @@ function renderLeitura(blocos, dia){
       ${S.versoes.map(v=>`<button data-v="${v.id}" aria-pressed="${v.id===S.versao}">${esc(v.sigla)}</button>`).join('')}
       <button id="tamanho" aria-pressed="false">Aa</button>
     </div>
+    ${ler('jaMarcou') ? '' : '<p class="dica">Toque em um versículo para destacar ou anotar.</p>'}
     ${html}
     ${dia?`<button class="btn" id="concluir" style="margin:8px 0 30px">
       ${S.diasLidos.has(dia)?'Lido':'Marcar dia como lido'}</button>`:''}
@@ -575,6 +637,7 @@ async function marcar(cor, nota){
         S.marcacoes.set(k, data);
       }
     }
+    guardar('jaMarcou', true);
     const m = S.marcacoes.get(k);
     span.className = ['v', m?.cor?'marc-'+m.cor:'', m?.nota?'tem-nota':''].filter(Boolean).join(' ');
     fecharFolha();
@@ -646,10 +709,18 @@ function telaCapitulos(livroId){
   });
 }
 
-async function lerCapitulo(livroId, cap){
+async function lerCapitulo(livroId, cap, versiculo){
   const l = livro(livroId);
   await lerPassagens([{livro_id:livroId, cap_ini:cap, cap_fim:cap, vers_ini:1, vers_fim:null}],
     `${l.nome} ${cap}`, null);
+  if(versiculo){
+    const alvo = el.querySelector(`.v[data-v="${versiculo}"]`);
+    if(alvo){
+      alvo.classList.add('alvo');
+      alvo.scrollIntoView({block:'center', behavior:'smooth'});
+      setTimeout(()=>alvo.classList.remove('alvo'), 2600);
+    }
+  }
   const nav = document.createElement('div');
   nav.style.cssText='display:flex;gap:10px;margin:6px 0 34px';
   nav.innerHTML = `
@@ -730,7 +801,7 @@ function telaBuscar(){
   topo('Buscar');
   el.innerHTML = `<div class="container">
     <div class="cartao">
-      <input id="q" type="search" placeholder="Palavra ou expressão" autocomplete="off">
+      <input id="q" type="search" placeholder="Palavra, expressão ou referência" autocomplete="off">
       <div class="abas" style="padding-top:12px">
         ${S.versoes.map(v=>`<button data-v="${v.id}" aria-pressed="${v.id===S.versao}">${esc(v.sigla)}</button>`).join('')}
       </div>
@@ -745,10 +816,36 @@ function telaBuscar(){
   inp.focus();
 }
 
+function cartaoRefs(refs){
+  if(!refs.length) return '';
+  return `<div class="cartao">
+    <span class="rotulo">Ir direto para</span>
+    <div style="margin-top:6px">${refs.map((r,i)=>`
+      <button class="item" data-ref="${i}">
+        <span class="principal">
+          <span class="titulo">${esc(r.livro.nome)} ${r.cap}${r.vers?':'+r.vers:''}</span>
+          <span class="desc">${esc(r.livro.genero)}</span>
+        </span>
+        <span class="marca">Abrir</span>
+      </button>`).join('')}</div></div>`;
+}
+function ligarRefs(refs){
+  document.querySelectorAll('[data-ref]').forEach(b=>{
+    b.onclick = ()=>{
+      const r = refs[Number(b.dataset.ref)];
+      S.pilha.push(()=>telaBuscar());
+      lerCapitulo(r.livro.id, r.cap, r.vers);
+    };
+  });
+}
+
 async function buscar(q){
   const alvo = $('#res');
-  if(q.length<3){ alvo.innerHTML=''; return; }
-  alvo.innerHTML = '<div class="carregando">Procurando</div>';
+  if(!q){ alvo.innerHTML=''; return; }
+  const refs = interpretarRef(q);
+  const cabeca = cartaoRefs(refs);
+  if(q.length<3){ alvo.innerHTML = cabeca; ligarRefs(refs); return; }
+  alvo.innerHTML = cabeca + '<div class="carregando">Procurando</div>';
   try{
     const { data, error } = await sb.from('versiculos')
       .select('livro_id,capitulo,versiculo,texto')
@@ -757,26 +854,27 @@ async function buscar(q){
       .limit(60);
     if(error) throw error;
     if(!data.length){
-      alvo.innerHTML = `<div class="vazio"><span class="cinzel">Nada encontrado</span>
+      alvo.innerHTML = cabeca + `<div class="vazio"><span class="cinzel">Nada encontrado</span>
         <p>Tente outra palavra, ou troque a versão — as três traduzem de modo diferente.</p></div>`;
-      return;
+      ligarRefs(refs); return;
     }
     const termos = q.split(/\s+/).filter(t=>t.length>2)
       .map(t=>t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'));
     const re = termos.length ? new RegExp(`(${termos.join('|')})`,'gi') : null;
-    alvo.innerHTML = `<div class="cartao">
+    alvo.innerHTML = cabeca + `<div class="cartao">
       <span class="rotulo">${data.length} resultado${data.length>1?'s':''}</span>
       <div style="margin-top:6px">${data.map(r=>{
         const l = livro(r.livro_id);
         const txt = re ? esc(r.texto).replace(re,'<mark>$1</mark>') : esc(r.texto);
-        return `<button class="item" data-l="${r.livro_id}" data-c="${r.capitulo}" style="display:block">
+        return `<button class="item" data-l="${r.livro_id}" data-c="${r.capitulo}" data-v="${r.versiculo}" style="display:block">
           <span class="rotulo" style="display:block;margin-bottom:4px">${esc(l.abrev)} ${r.capitulo}:${r.versiculo}</span>
           <span style="font-size:.95rem;line-height:1.6">${txt}</span>
         </button>`;
       }).join('')}</div></div>`;
+    ligarRefs(refs);
     alvo.querySelectorAll('[data-l]').forEach(b=>{
       b.onclick = ()=>{ S.pilha.push(()=>telaBuscar());
-        lerCapitulo(Number(b.dataset.l), Number(b.dataset.c)); };
+        lerCapitulo(Number(b.dataset.l), Number(b.dataset.c), Number(b.dataset.v)); };
     });
   }catch(e){ alvo.innerHTML=`<div class="vazio"><span class="cinzel">A busca falhou</span><p>${esc(e.message)}</p></div>`; }
 }
