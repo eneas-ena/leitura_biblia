@@ -198,6 +198,19 @@ textarea{min-height:110px;resize:vertical;line-height:1.6}
   color:var(--tinta2);letter-spacing:.02em;line-height:1.45}
 [data-tema="noite"] .ref-dia{color:var(--tinta2)}
 mark{background:rgba(230,168,23,.4);color:inherit;border-radius:2px}
+.linha-prop{display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--linha)}
+.linha-prop:last-child{border-bottom:none}
+.linha-prop .item{border-bottom:none;flex:1;min-width:0;padding:13px 2px}
+.btn-x{width:40px;height:40px;border-radius:10px;border:1px solid var(--linha);
+  color:var(--texto3);font-size:1.3rem;line-height:1;display:flex;align-items:center;
+  justify-content:center;flex-shrink:0}
+.btn-x:active{background:var(--papel2);color:var(--texto)}
+.fora{display:flex;align-items:center;gap:10px;padding:7px 2px;font-size:.87rem;
+  color:var(--texto3)}
+.fora span{flex:1;min-width:0;text-decoration:line-through}
+.fora button{font-family:'Cormorant Garamond',serif;font-size:.78rem;letter-spacing:.1em;
+  text-transform:uppercase;font-weight:600;color:var(--tinta3);border:1px solid var(--linha);
+  border-radius:99px;padding:4px 12px;flex-shrink:0}
 .dica{font-family:'Cormorant Garamond',serif;font-size:.92rem;color:var(--texto3);
   text-align:center;margin:10px 0 2px;font-style:italic}
 .v.alvo{background:rgba(230,168,23,.45);box-shadow:0 0 0 3px rgba(230,168,23,.45);
@@ -893,56 +906,105 @@ async function proporTema(tema){
       return;
     }
     S.proposta = p;
-    alvo.innerHTML = `
-      <div style="margin-top:20px;border-top:1px solid var(--linha);padding-top:16px">
-        <span class="rotulo">Proposta</span>
-        <h2 class="cinzel" style="font-size:1.05rem;color:var(--tinta2);margin:8px 0 4px">
-          ${esc(p.nome)}</h2>
-        <p style="color:var(--texto2);font-size:.92rem;margin:0 0 10px">${esc(p.descricao)}</p>
-        <p><span class="chip">${p.dias} dias</span><span class="chip">${p.versiculos} versículos</span></p>
-        ${p.observacao?`<div class="aviso">${esc(p.observacao)}</div>`:''}
-        ${p.descartados?.length?`<p style="font-size:.85rem;color:var(--texto3);margin:10px 0 0">
-          ${p.descartados.length} referência${p.descartados.length>1?'s foram descartadas':' foi descartada'}
-          por não existir${p.descartados.length>1?'em':''} no texto:
-          ${p.descartados.map(d=>esc(d.ref)).join(', ')}.</p>`:''}
-        <div style="margin-top:12px">
-          ${p.itens.map((i,n)=>`<button class="item" data-prev="${n}">
-            <span class="principal">
-              <span class="titulo">${esc(i.rotulo)}</span>
-              <span class="desc">${esc(i.ref_limpa)} &middot; ${i.qtd} versículos</span>
-            </span>
-            <span class="marca">ver</span>
-          </button>`).join('')}
-        </div>
-        <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
-          <button class="btn btn-ouro" id="salvar-tema">Criar este percurso</button>
-          <button class="btn btn-linha" id="descartar">Descartar</button>
-        </div>
-      </div>`;
-
-    alvo.querySelectorAll('[data-prev]').forEach(b=>{
-      b.onclick = ()=>espiar(p.itens[Number(b.dataset.prev)]);
-    });
-    $('#descartar').onclick = ()=>{ alvo.innerHTML=''; $('#propor').disabled=false; };
-    $('#salvar-tema').onclick = async ()=>{
-      $('#salvar-tema').disabled = true;
-      $('#salvar-tema').textContent = 'Criando';
-      try{
-        await chamarWorker('/criar', {
-          nome:p.nome, descricao:p.descricao,
-          itens:p.itens.map(i=>({ref:i.ref, rotulo:i.rotulo})),
-        });
-        S.aba='temas'; rotear();
-      }catch(e){
-        $('#salvar-tema').disabled=false;
-        $('#salvar-tema').textContent='Criar este percurso';
-        alert('Não foi possível criar: '+e.message);
-      }
-    };
+    p.itens.forEach(i => i.descartado = false);
+    renderProposta();
   }catch(e){
     alvo.innerHTML = `<div class="aviso" style="margin-top:16px">${esc(e.message)}</div>`;
     $('#propor').disabled = false;
   }
+}
+
+
+function renderProposta(){
+  const p = S.proposta;
+  const alvo = $('#proposta');
+  const dentro = p.itens.filter(i=>!i.descartado);
+  const fora   = p.itens.filter(i=>i.descartado);
+  const dias   = dentro.length;
+  const versiculos = dentro.reduce((n,i)=>n+i.qtd, 0);
+  const poucos = dias < 5;
+
+  alvo.innerHTML = `
+    <div style="margin-top:20px;border-top:1px solid var(--linha);padding-top:16px">
+      <span class="rotulo">Proposta</span>
+      <h2 class="cinzel" style="font-size:1.05rem;color:var(--tinta2);margin:8px 0 4px">
+        ${esc(p.nome)}</h2>
+      <p style="color:var(--texto2);font-size:.92rem;margin:0 0 10px">${esc(p.descricao)}</p>
+      <p><span class="chip">${dias} dias</span><span class="chip">${versiculos} versículos</span></p>
+      ${p.observacao?`<div class="aviso">${esc(p.observacao)}</div>`:''}
+      ${p.descartados?.length?`<p style="font-size:.85rem;color:var(--texto3);margin:10px 0 0">
+        ${p.descartados.length} referência${p.descartados.length>1?'s não existiam':' não existia'}
+        no texto e ${p.descartados.length>1?'foram removidas':'foi removida'}:
+        ${p.descartados.map(d=>esc(d.ref)).join(', ')}.</p>`:''}
+
+      <div style="margin-top:12px">
+        ${dentro.map(i=>{
+          const n = p.itens.indexOf(i);
+          return `<div class="linha-prop">
+            <button class="item" data-prev="${n}">
+              <span class="principal">
+                <span class="titulo">${esc(i.rotulo)}</span>
+                <span class="desc">${esc(i.ref_limpa)} &middot; ${i.qtd} versículos</span>
+              </span>
+              <span class="marca">ver</span>
+            </button>
+            <button class="btn-x" data-fora="${n}" aria-label="Descartar ${esc(i.ref_limpa)}">&times;</button>
+          </div>`;
+        }).join('')}
+      </div>
+
+      ${fora.length?`
+        <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--linha)">
+          <span class="rotulo">Descartados por você</span>
+          <div style="margin-top:6px">
+            ${fora.map(i=>{
+              const n = p.itens.indexOf(i);
+              return `<div class="fora">
+                <span>${esc(i.ref_limpa)} — ${esc(i.rotulo)}</span>
+                <button data-volta="${n}">Restaurar</button>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`:''}
+
+      ${poucos?`<div class="aviso" style="margin-top:14px">
+        Sobraram ${dias} passagem${dias===1?'':'s'}. Abaixo de cinco o percurso fica
+        magro demais — restaure alguma ou proponha o tema de novo.</div>`:''}
+
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
+        <button class="btn btn-ouro" id="salvar-tema" ${poucos?'disabled':''}>
+          Criar este percurso${poucos?'':` (${dias} dias)`}</button>
+        <button class="btn btn-linha" id="descartar">Descartar proposta</button>
+      </div>
+    </div>`;
+
+  alvo.querySelectorAll('[data-prev]').forEach(b=>{
+    b.onclick = ()=>espiar(p.itens[Number(b.dataset.prev)]);
+  });
+  alvo.querySelectorAll('[data-fora]').forEach(b=>{
+    b.onclick = ()=>{ p.itens[Number(b.dataset.fora)].descartado = true; renderProposta(); };
+  });
+  alvo.querySelectorAll('[data-volta]').forEach(b=>{
+    b.onclick = ()=>{ p.itens[Number(b.dataset.volta)].descartado = false; renderProposta(); };
+  });
+
+  $('#descartar').onclick = ()=>{ alvo.innerHTML=''; S.proposta=null; $('#propor').disabled=false; };
+
+  $('#salvar-tema').onclick = async ()=>{
+    const bt = $('#salvar-tema');
+    bt.disabled = true; bt.textContent = 'Criando';
+    try{
+      await chamarWorker('/criar', {
+        nome: p.nome, descricao: p.descricao,
+        itens: dentro.map(i=>({ ref:i.ref, rotulo:i.rotulo })),
+      });
+      S.proposta = null;
+      S.aba='temas'; rotear();
+    }catch(e){
+      bt.disabled = false; bt.textContent = 'Criar este percurso';
+      alert('Não foi possível criar: '+e.message);
+    }
+  };
 }
 
 async function espiar(item){
