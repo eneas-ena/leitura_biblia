@@ -198,6 +198,29 @@ textarea{min-height:110px;resize:vertical;line-height:1.6}
   color:var(--tinta2);letter-spacing:.02em;line-height:1.45}
 [data-tema="noite"] .ref-dia{color:var(--tinta2)}
 mark{background:rgba(230,168,23,.4);color:inherit;border-radius:2px}
+.dia-linha{display:flex;align-items:center;gap:12px;padding:11px 4px;width:100%;
+  text-align:left;border-bottom:1px solid var(--linha)}
+.dia-linha:last-child{border-bottom:none}
+.dia-num{font-family:'Cormorant Garamond',serif;font-size:.82rem;font-weight:600;
+  color:var(--texto3);width:34px;flex-shrink:0;letter-spacing:.04em}
+.dia-corpo{flex:1;min-width:0}
+.dia-ref{display:block;font-family:'Cormorant Garamond',serif;font-size:1.02rem;
+  font-weight:600;color:var(--texto)}
+.dia-rot{display:block;font-size:.83rem;color:var(--texto2);margin-top:1px}
+.dia-marca{width:22px;height:22px;border-radius:50%;flex-shrink:0;
+  border:1.5px solid var(--linha);display:flex;align-items:center;justify-content:center}
+.dia-linha.lido .dia-marca{background:var(--tinta2);border-color:var(--tinta2)}
+.dia-linha.lido .dia-ref{color:var(--texto2)}
+.dia-linha.hoje{background:var(--papel2);border-radius:8px}
+.dia-linha.hoje .dia-marca{border-color:var(--ouro);border-width:2.5px}
+.dia-marca svg{width:13px;height:13px;stroke:#fff;stroke-width:3}
+.grupo-cab{display:flex;align-items:baseline;gap:10px;margin:20px 0 2px;
+  padding-top:14px;border-top:1px solid var(--linha)}
+.grupo-cab:first-child{border-top:none;padding-top:0;margin-top:6px}
+.grupo-cab .nome{font-family:'Cinzel',serif;font-size:.8rem;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--tinta2);flex:1}
+.grupo-cab .cont{font-family:'Cormorant Garamond',serif;font-size:.8rem;color:var(--texto3);
+  letter-spacing:.06em}
 .linha-prop{display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--linha)}
 .linha-prop:last-child{border-bottom:none}
 .linha-prop .item{border-bottom:none;flex:1;min-width:0;padding:13px 2px}
@@ -518,6 +541,7 @@ async function telaHoje(){
         <button class="btn" id="ler-hoje">Ler agora</button>
         <button class="btn ${concluido?'btn-linha':'btn-ouro'}" id="marcar">
           ${concluido?'Lido — desmarcar':'Marcar como lido'}</button>
+        <button class="btn btn-linha" id="ver-plano">Ver o plano completo</button>
       </div>
     </div>
   </div>`;
@@ -526,6 +550,7 @@ async function telaHoje(){
     f.onclick = ()=>abrirDia(Number(f.dataset.dia));
   });
   $('#ler-hoje').onclick = ()=>abrirDia(dia);
+  $('#ver-plano').onclick = ()=>telaQuadro();
   $('#marcar').onclick = async ()=>{
     const b=$('#marcar'); b.disabled=true;
     try{
@@ -541,6 +566,88 @@ async function telaHoje(){
       telaHoje();
     }catch(e){ b.disabled=false; alert('Não foi possível salvar. Verifique a conexão.'); }
   };
+}
+
+
+/* ---------- QUADRO GERAL DO PLANO ---------- */
+function telaQuadro(filtro){
+  const p = S.planoAtivo?.planos;
+  if(!p) { S.aba='hoje'; rotear(); return; }
+  const f = filtro || S.filtroQuadro || 'todos';
+  S.filtroQuadro = f;
+  const atual = proximoDia();
+
+  topo(p.trilhas?.nome || p.nome, ()=>{ S.aba='hoje'; rotear(); });
+
+  const dias = S.planoDias.filter(d=>{
+    if(f==='lidos')     return S.diasLidos.has(d.dia);
+    if(f==='restantes') return !S.diasLidos.has(d.dia);
+    return true;
+  });
+
+  // agrupa preservando a ordem dos dias
+  const grupos = [];
+  dias.forEach(d=>{
+    const g = d.grupo || p.nome;
+    if(!grupos.length || grupos.at(-1).nome !== g) grupos.push({nome:g, dias:[]});
+    grupos.at(-1).dias.push(d);
+  });
+
+  const lidos = S.diasLidos.size, total = S.planoDias.length;
+
+  el.innerHTML = `<div class="container">
+    <div class="cartao">
+      <span class="rotulo">${lidos} de ${total} dias &middot; ${Math.round(lidos/total*100)}%</span>
+      <div class="barra"><div style="width:${(lidos/total*100).toFixed(1)}%"></div></div>
+      <div class="abas">
+        <button data-f="todos"     aria-pressed="${f==='todos'}">Todos</button>
+        <button data-f="restantes" aria-pressed="${f==='restantes'}">A ler</button>
+        <button data-f="lidos"     aria-pressed="${f==='lidos'}">Lidos</button>
+      </div>
+      <button class="btn btn-linha" id="ir-atual" style="margin-top:4px">Ir para o dia ${atual}</button>
+    </div>
+
+    ${dias.length ? grupos.map(g=>`
+      <div class="cartao">
+        <div class="grupo-cab">
+          <span class="nome">${esc(g.nome)}</span>
+          <span class="cont">${g.dias[0].dia}–${g.dias.at(-1).dia}</span>
+        </div>
+        <div>${g.dias.map(d=>{
+          const lido = S.diasLidos.has(d.dia);
+          const hoje = d.dia === atual;
+          return `<button class="dia-linha ${lido?'lido':''} ${hoje?'hoje':''}" data-dia="${d.dia}">
+            <span class="dia-num">${d.dia}</span>
+            <span class="dia-corpo">
+              <span class="dia-ref">${esc(d.referencias.map(r=>r.ref).join('; '))}</span>
+              ${d.rotulo && p.estrategia==='capitulos'
+                ? `<span class="dia-rot">${esc(d.rotulo)}</span>` : ''}
+            </span>
+            <span class="dia-marca">${lido
+              ? '<svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l6 6L20 6"/></svg>'
+              : ''}</span>
+          </button>`;
+        }).join('')}</div>
+      </div>`).join('')
+    : `<div class="vazio"><span class="cinzel">Nada aqui</span>
+        <p>${f==='lidos'?'Você ainda não concluiu nenhum dia.':'Você já leu tudo.'}</p></div>`}
+  </div>`;
+
+  el.querySelectorAll('[data-f]').forEach(b=>{
+    b.onclick = ()=>telaQuadro(b.dataset.f);
+  });
+  $('#ir-atual').onclick = ()=>{
+    const alvo = el.querySelector(`[data-dia="${atual}"]`);
+    if(alvo) alvo.scrollIntoView({block:'center', behavior:'smooth'});
+    else telaQuadro('todos');
+  };
+  el.querySelectorAll('[data-dia]').forEach(b=>{
+    b.onclick = ()=>{
+      S.pilha.push(()=>telaQuadro());
+      const d = S.planoDias.find(x=>x.dia===Number(b.dataset.dia));
+      lerPassagens(d.referencias, `Dia ${d.dia}`, d.dia);
+    };
+  });
 }
 
 async function abrirDia(dia){
@@ -606,7 +713,8 @@ function renderLeitura(blocos, dia){
     if(S.diasLidos.has(dia)) return;
     await sb.from('leitor_progresso').insert({leitor_plano_id:S.planoAtivo.id, dia});
     S.diasLidos.add(dia);
-    S.pilha=[]; S.aba='hoje'; rotear();
+    const voltar = S.pilha.pop();
+    if(voltar) voltar(); else { S.aba='hoje'; rotear(); }
   };
 }
 
@@ -674,6 +782,8 @@ async function marcar(cor, nota){
 function telaLer(){
   topo('Ler');
   const ordem = ler('ordemLivros','canonica');
+  if(ordem==='cronologica') return telaLerCronologica();
+
   let livros = [...S.livros];
   if(ordem==='judaica'){
     livros.sort((a,b)=>{
@@ -691,10 +801,7 @@ function telaLer(){
   });
 
   el.innerHTML = `<div class="container">
-    <div class="abas">
-      <button data-ordem="canonica" aria-pressed="${ordem==='canonica'}">Ordem canônica</button>
-      <button data-ordem="judaica" aria-pressed="${ordem==='judaica'}">Ordem do Tanakh</button>
-    </div>
+    ${abasOrdem(ordem)}
     ${grupos.map(g=>`
       <div class="cartao">
         <span class="rotulo">${esc(g.nome)}</span>
@@ -707,12 +814,82 @@ function telaLer(){
       </div>`).join('')}
   </div>`;
 
-  el.querySelectorAll('[data-ordem]').forEach(b=>{
-    b.onclick = ()=>{ guardar('ordemLivros', b.dataset.ordem); telaLer(); };
-  });
+  ligarAbasOrdem();
   el.querySelectorAll('[data-livro]').forEach(b=>{
     b.onclick = ()=>telaCapitulos(Number(b.dataset.livro));
   });
+}
+
+function abasOrdem(ordem){
+  return `<div class="abas">
+    <button data-ordem="canonica"    aria-pressed="${ordem==='canonica'}">Canônica</button>
+    <button data-ordem="judaica"     aria-pressed="${ordem==='judaica'}">Tanakh</button>
+    <button data-ordem="cronologica" aria-pressed="${ordem==='cronologica'}">Cronológica</button>
+  </div>`;
+}
+function ligarAbasOrdem(){
+  el.querySelectorAll('[data-ordem]').forEach(b=>{
+    b.onclick = ()=>{ guardar('ordemLivros', b.dataset.ordem); telaLer(); };
+  });
+}
+
+/* Leitura cronológica corrida: os 199 trechos da trilha 3, na ordem dos fatos.
+   Não é ordem de livros — Jó entra em Gênesis, os Salmos nos históricos,
+   os profetas nos Reis, e os Evangelhos são harmonizados. */
+async function telaLerCronologica(){
+  topo('Ler');
+  el.innerHTML = `<div class="container">${abasOrdem('cronologica')}
+    <div class="carregando">Montando a linha do tempo</div></div>`;
+  ligarAbasOrdem();
+  try{
+    const { data, error } = await sb.from('trilha_itens')
+      .select('ordem,livro_id,cap_ini,vers_ini,cap_fim,vers_fim,rotulo,grupo,qtd_versiculos')
+      .eq('trilha_id', 3).order('ordem');
+    if(error) throw error;
+
+    const grupos = [];
+    data.forEach(it=>{
+      if(!grupos.length || grupos.at(-1).nome!==it.grupo) grupos.push({nome:it.grupo, itens:[]});
+      grupos.at(-1).itens.push(it);
+    });
+
+    el.innerHTML = `<div class="container">
+      ${abasOrdem('cronologica')}
+      <div class="aviso">Os fatos na ordem em que aconteceram. Jó aparece dentro de Gênesis,
+      os Salmos junto aos episódios que os geraram, os profetas nos reinados correspondentes
+      e os Evangelhos harmonizados.</div>
+      ${grupos.map(g=>`
+        <div class="cartao">
+          <span class="rotulo">${esc(g.nome)}</span>
+          <div style="margin-top:8px">
+            ${g.itens.map(it=>{
+              const l = livro(it.livro_id);
+              const ref = l.abrev + ' ' + it.cap_ini +
+                (it.cap_ini===it.cap_fim ? '' : '—' + it.cap_fim);
+              return `<button class="item" data-ordem-item="${it.ordem}">
+                <span class="principal">
+                  <span class="titulo">${esc(it.rotulo||ref)}</span>
+                  <span class="desc">${esc(ref)} &middot; ${it.qtd_versiculos} versículos</span>
+                </span>
+                <span class="marca">ler</span>
+              </button>`;
+            }).join('')}
+          </div>
+        </div>`).join('')}
+    </div>`;
+
+    ligarAbasOrdem();
+    el.querySelectorAll('[data-ordem-item]').forEach(b=>{
+      b.onclick = ()=>{
+        const it = data.find(x=>x.ordem===Number(b.dataset.ordemItem));
+        const l = livro(it.livro_id);
+        S.pilha.push(()=>telaLer());
+        lerPassagens([{livro_id:it.livro_id, cap_ini:it.cap_ini, vers_ini:it.vers_ini,
+                       cap_fim:it.cap_fim, vers_fim:it.vers_fim}],
+                     it.rotulo || `${l.nome} ${it.cap_ini}`, null);
+      };
+    });
+  }catch(e){ erro('Não consegui montar a linha do tempo', e.message); }
 }
 
 function telaCapitulos(livroId){
