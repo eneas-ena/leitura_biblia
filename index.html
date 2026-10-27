@@ -234,6 +234,17 @@ mark{background:rgba(230,168,23,.4);color:inherit;border-radius:2px}
 .fora button{font-family:'Cormorant Garamond',serif;font-size:.78rem;letter-spacing:.1em;
   text-transform:uppercase;font-weight:600;color:var(--tinta3);border:1px solid var(--linha);
   border-radius:99px;padding:4px 12px;flex-shrink:0}
+.aviso-nova{position:fixed;left:12px;right:12px;bottom:calc(74px + var(--safe-b));z-index:55;
+  background:var(--tinta);color:#F2F6FB;border-radius:12px;padding:13px 15px;
+  display:flex;align-items:center;gap:12px;box-shadow:0 6px 24px rgba(10,16,26,.28)}
+[data-tema="noite"] .aviso-nova{background:var(--tinta3);color:#08101C}
+.aviso-nova p{margin:0;flex:1;font-size:.9rem;line-height:1.4}
+.aviso-nova button{background:var(--ouro);color:#1A1405;border-radius:8px;padding:9px 14px;
+  font-family:'Cormorant Garamond',serif;font-weight:600;font-size:.86rem;letter-spacing:.09em;
+  text-transform:uppercase;flex-shrink:0}
+.aviso-nova .fechar{background:none;color:inherit;opacity:.7;padding:6px;font-size:1.1rem}
+.rodape{text-align:center;padding:26px 0 10px;font-family:'Cormorant Garamond',serif;
+  font-size:.82rem;letter-spacing:.1em;color:var(--texto3)}
 .dica{font-family:'Cormorant Garamond',serif;font-size:.92rem;color:var(--texto3);
   text-align:center;margin:10px 0 2px;font-style:italic}
 .v.alvo{background:rgba(230,168,23,.45);box-shadow:0 0 0 3px rgba(230,168,23,.45);
@@ -269,7 +280,9 @@ mark{background:rgba(230,168,23,.4);color:inherit;border-radius:2px}
 /* ============================================================
    1. CONFIGURAÇÃO  —  preencha com os dados do projeto novo
    ============================================================ */
-const SUPABASE_URL  = 'https://ghjbljypxksubmcsvaig.supabase.co';   // 05/10: projeto quiz-biblico
+const VERSAO_APP    = '2.1.0';   // trocar a cada publicação
+
+const SUPABASE_URL  = 'https://ghjbljypxksubmcsvaig.supabase.co';   // projeto quiz-biblico
 const SUPABASE_KEY  = 'sb_publishable_qXCYqg1WdmelY9D1mptZXg_U8NdoKby';
 
 /* Criação de temas por IA. Deixe WORKER_URL vazio para desligar o recurso —
@@ -1300,7 +1313,13 @@ async function telaEu(){
     el.innerHTML = `<div class="container"><div class="vazio">
       <span class="cinzel">Nenhuma marcação ainda</span>
       <p>Enquanto lê, toque em um versículo para destacá-lo ou anotar o que ele diz a você.
-      As marcações acompanham o texto em qualquer versão.</p></div></div>`;
+      As marcações acompanham o texto em qualquer versão.</p></div>
+      <button class="btn btn-linha" id="atualizar">Atualizar o app</button>
+      <button class="btn btn-linha" id="sair" style="margin-top:10px">Sair da conta</button>
+      <p class="rodape">Leitura da Bíblia &middot; versão ${VERSAO_APP}</p>
+      </div>`;
+    $('#atualizar').onclick = ()=>forcarAtualizacao();
+    $('#sair').onclick = ()=>{ guardar('leitor',null); location.reload(); };
     return;
   }
   el.innerHTML = `<div class="container">
@@ -1316,13 +1335,16 @@ async function telaEu(){
       }).join('')}</div>
     </div>
     <div class="container" style="padding:0">
-      <button class="btn btn-linha" id="sair">Sair da conta</button>
+      <button class="btn btn-linha" id="atualizar">Atualizar o app</button>
+      <button class="btn btn-linha" id="sair" style="margin-top:10px">Sair da conta</button>
+      <p class="rodape">Leitura da Bíblia &middot; versão ${VERSAO_APP}</p>
     </div>
   </div>`;
   el.querySelectorAll('[data-l]').forEach(b=>{
     b.onclick = ()=>{ S.pilha.push(()=>telaEu());
       lerCapitulo(Number(b.dataset.l), Number(b.dataset.c)); };
   });
+  $('#atualizar').onclick = ()=>forcarAtualizacao();
   $('#sair').onclick = ()=>{ guardar('leitor',null); location.reload(); };
 }
 
@@ -1417,6 +1439,49 @@ function criarLeitor(){
   };
 }
 
+
+/* ============================================================
+   ATUALIZAÇÃO DO APP
+   Lê o index.html publicado, compara a constante de versão com a
+   que está rodando e avisa quando houver diferença.
+   ============================================================ */
+async function forcarAtualizacao(){
+  try{
+    if('serviceWorker' in navigator){
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r=>r.unregister()));
+    }
+    if(window.caches){
+      const chaves = await caches.keys();
+      await Promise.all(chaves.map(k=>caches.delete(k)));
+    }
+  }catch{}
+  location.replace(location.pathname + '?v=' + Date.now());
+}
+
+async function verificarVersao(){
+  try{
+    const r = await fetch(location.pathname + '?checar=' + Date.now(), { cache:'no-store' });
+    if(!r.ok) return;
+    const txt = await r.text();
+    const m = txt.match(/VERSAO_APP\s*=\s*['"]([^'"]+)['"]/);
+    if(!m || m[1] === VERSAO_APP) return;
+    mostrarAvisoNova(m[1]);
+  }catch{}
+}
+
+function mostrarAvisoNova(nova){
+  if(document.getElementById('aviso-nova')) return;
+  const d = document.createElement('div');
+  d.className = 'aviso-nova'; d.id = 'aviso-nova';
+  d.innerHTML = `<p>Versão ${esc(nova)} disponível. Você está na ${esc(VERSAO_APP)}.</p>
+    <button id="atualizar-agora">Atualizar agora</button>
+    <button class="fechar" id="depois" aria-label="Fechar">&times;</button>`;
+  document.body.appendChild(d);
+  d.querySelector('#atualizar-agora').onclick = ()=>forcarAtualizacao();
+  d.querySelector('#depois').onclick = ()=>d.remove();
+}
+
 /* ============================================================
    5. ROTEADOR
    ============================================================ */
@@ -1448,7 +1513,11 @@ function rotear(){
 })();
 
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+
+verificarVersao();
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible') verificarVersao();
+});
 </script>
-<div id="versao-app" style="position:fixed;right:12px;bottom:12px;font:600 12px/1 system-ui,sans-serif;color:#C9A227;background:#0F1B33;border:1px solid #C9A227;padding:6px 10px;border-radius:999px;z-index:9999;pointer-events:none">v2.0 · 05/10</div>
 </body>
 </html>

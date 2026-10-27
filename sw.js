@@ -1,7 +1,7 @@
 /* Leitura da Bíblia — service worker
    Rede primeiro para o HTML (atualizações aparecem na hora),
    cache como reserva quando estiver offline. */
-const VERSAO = 'leitura-v3';
+const VERSAO = 'leitura-v4';
 const CASCA = ['./', './index.html', './manifest.json', './icone-192.png', './icone-512.png', './favicon.ico', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
@@ -23,6 +23,12 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
+
+  // Checagem de versão e recarga forçada: sempre direto da rede.
+  if (url.searchParams.has('checar') || url.searchParams.has('v')) {
+    e.respondWith(fetch(e.request, { cache: 'no-store' }));
+    return;
+  }
   const ehDocumento = e.request.mode === 'navigate'
     || e.request.destination === 'document'
     || url.pathname.endsWith('.html');
