@@ -245,6 +245,9 @@ mark{background:rgba(230,168,23,.4);color:inherit;border-radius:2px}
 .aviso-nova .fechar{background:none;color:inherit;opacity:.7;padding:6px;font-size:1.1rem}
 .rodape{text-align:center;padding:26px 0 10px;font-family:'Cormorant Garamond',serif;
   font-size:.82rem;letter-spacing:.1em;color:var(--texto3)}
+.creditos{font-family:'Cormorant Garamond',serif;font-size:.78rem;line-height:1.5;
+  color:var(--texto3);text-align:center;margin:4px 0 30px;padding:12px 10px 0;
+  border-top:1px solid var(--linha)}
 .dica{font-family:'Cormorant Garamond',serif;font-size:.92rem;color:var(--texto3);
   text-align:center;margin:10px 0 2px;font-style:italic}
 .v.alvo{background:rgba(230,168,23,.45);box-shadow:0 0 0 3px rgba(230,168,23,.45);
@@ -280,7 +283,7 @@ mark{background:rgba(230,168,23,.4);color:inherit;border-radius:2px}
 /* ============================================================
    1. CONFIGURAÇÃO  —  preencha com os dados do projeto novo
    ============================================================ */
-const VERSAO_APP    = '2.1.0';   // trocar a cada publicação
+const VERSAO_APP    = '2.2.0';   // trocar a cada publicação
 
 const SUPABASE_URL  = 'https://ghjbljypxksubmcsvaig.supabase.co';   // projeto quiz-biblico
 const SUPABASE_KEY  = 'sb_publishable_qXCYqg1WdmelY9D1mptZXg_U8NdoKby';
@@ -299,6 +302,7 @@ const S = {
   leitor:null, versao:1, versoes:[], livros:[], trilhas:[],
   planoAtivo:null, diasLidos:new Set(), planoDias:[],
   aba:'hoje', pilha:[], marcacoes:new Map(), selecao:null,
+  versaoBusca:null, direitosExternos:'',
 };
 const $  = s=>document.querySelector(s);
 const el = $('#tela');
@@ -372,9 +376,29 @@ async function carregarBase(){
   S.versao = ler('versao', S.versoes[0]?.id) || S.versoes[0]?.id;
 }
 
+const versaoInfo = id => S.versoes.find(v=>v.id===id);
+
 async function capitulo(livroId, cap, versaoId=S.versao){
   const chave = `${versaoId}:${livroId}:${cap}`;
   if(cache.has(chave)) return cache.get(chave);
+
+  const v = versaoInfo(versaoId);
+
+  // Versão externa: o texto vem do API.Bible pelo Worker e fica só
+  // em memória nesta sessão — nunca é gravado no banco nem no aparelho.
+  if(v?.externa){
+    if(!WORKER_URL || !WORKER_TOKEN)
+      throw new Error('Esta versão precisa do Worker configurado.');
+    const l = livro(livroId);
+    const r = await chamarWorker('/passagem', {
+      api_id: v.api_id, capitulos: [`${l.code}.${cap}`],
+    });
+    const dados = r.capitulos[`${l.code}.${cap}`] || [];
+    S.direitosExternos = r.direitos || v.creditos || '';
+    cache.set(chave, dados);
+    return dados;
+  }
+
   const { data, error } = await sb.from('versiculos')
     .select('versiculo,texto')
     .eq('versao_id',versaoId).eq('livro_id',livroId).eq('capitulo',cap)
@@ -710,6 +734,9 @@ function renderLeitura(blocos, dia){
     ${html}
     ${dia?`<button class="btn" id="concluir" style="margin:8px 0 30px">
       ${S.diasLidos.has(dia)?'Lido':'Marcar dia como lido'}</button>`:''}
+    ${versaoInfo(S.versao)?.externa
+      ? `<p class="creditos">${esc(S.direitosExternos || versaoInfo(S.versao).creditos || '')}</p>`
+      : ''}
   </div>`;
 
   $('#troca-versao').querySelectorAll('[data-v]').forEach(b=>{
@@ -1203,14 +1230,14 @@ async function espiar(item){
     const r = await sb.rpc('validar_refs', { p_refs:[item.ref] });
     const c = r.data?.[0];
     if(!c?.ok) throw new Error('Referência não encontrada.');
-    const { data } = await sb.from('versiculos')
-      .select('capitulo,versiculo,texto').eq('versao_id', S.versao)
-      .eq('livro_id', c.livro_id)
-      .gte('capitulo', c.cap_ini).lte('capitulo', c.cap_fim)
-      .order('capitulo').order('versiculo');
-    const versos = (data||[]).filter(v=>
-      (v.capitulo>c.cap_ini || v.versiculo>=c.vers_ini) &&
-      (v.capitulo<c.cap_fim || v.versiculo<=c.vers_fim));
+    const versos = [];
+    for(let cp=c.cap_ini; cp<=c.cap_fim; cp++){
+      const todos = await capitulo(c.livro_id, cp);
+      const de  = cp===c.cap_ini ? c.vers_ini : 1;
+      const ate = cp===c.cap_fim ? c.vers_fim : 999;
+      todos.filter(v=>v.versiculo>=de && v.versiculo<=ate)
+           .forEach(v=>versos.push({...v, capitulo:cp}));
+    }
     folha(`
       <span class="rotulo">${esc(c.ref_limpa)}</span>
       <h2 class="cinzel" style="font-size:1rem;color:var(--tinta2);margin:8px 0 12px">
@@ -1224,18 +1251,28 @@ async function espiar(item){
 /* ---------- BUSCAR ---------- */
 function telaBuscar(){
   topo('Buscar');
+  // A busca varre o texto guardado no banco. As versões lidas ao vivo
+  // não estão lá, então ficam de fora — e o app diz isso em vez de
+  // devolver "nada encontrado" sem explicação.
+  const locais = S.versoes.filter(v=>!v.externa);
+  if(!locais.some(v=>v.id===S.versaoBusca)) S.versaoBusca = locais[0]?.id;
+  const externaAtiva = versaoInfo(S.versao)?.externa;
+
   el.innerHTML = `<div class="container">
     <div class="cartao">
       <input id="q" type="search" placeholder="Palavra, expressão ou referência" autocomplete="off">
       <div class="abas" style="padding-top:12px">
-        ${S.versoes.map(v=>`<button data-v="${v.id}" aria-pressed="${v.id===S.versao}">${esc(v.sigla)}</button>`).join('')}
+        ${locais.map(v=>`<button data-v="${v.id}" aria-pressed="${v.id===S.versaoBusca}">${esc(v.sigla)}</button>`).join('')}
       </div>
+      ${externaAtiva?`<p class="dica" style="text-align:left;margin-top:10px">
+        As versões lidas ao vivo não podem ser pesquisadas — o texto delas não
+        fica guardado. A busca usa as três armazenadas.</p>`:''}
     </div>
     <div id="res"></div>
   </div>`;
   const inp = $('#q'); let t;
   el.querySelectorAll('[data-v]').forEach(b=>{
-    b.onclick=()=>{ S.versao=Number(b.dataset.v); guardar('versao',S.versao); telaBuscar(); };
+    b.onclick=()=>{ S.versaoBusca=Number(b.dataset.v); telaBuscar(); };
   });
   inp.oninput = ()=>{ clearTimeout(t); t=setTimeout(()=>buscar(inp.value.trim()), 350); };
   inp.focus();
@@ -1274,7 +1311,7 @@ async function buscar(q){
   try{
     const { data, error } = await sb.from('versiculos')
       .select('livro_id,capitulo,versiculo,texto')
-      .eq('versao_id', S.versao)
+      .eq('versao_id', S.versaoBusca)
       .textSearch('busca', q, { config:'portuguese', type:'plain' })
       .limit(60);
     if(error) throw error;
