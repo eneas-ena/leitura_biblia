@@ -288,7 +288,7 @@ mark{background:rgba(230,168,23,.4);color:inherit;border-radius:2px}
 /* ============================================================
    1. CONFIGURAÇÃO  —  preencha com os dados do projeto novo
    ============================================================ */
-const VERSAO_APP    = '2.3.0';   // trocar a cada publicação
+const VERSAO_APP    = '2.4.0';   // trocar a cada publicação
 
 const SUPABASE_URL  = 'https://ghjbljypxksubmcsvaig.supabase.co';   // projeto quiz-biblico
 const SUPABASE_KEY  = 'sb_publishable_qXCYqg1WdmelY9D1mptZXg_U8NdoKby';
@@ -296,12 +296,16 @@ const SUPABASE_KEY  = 'sb_publishable_qXCYqg1WdmelY9D1mptZXg_U8NdoKby';
 /* Criação de temas por IA. Deixe WORKER_URL vazio para desligar o recurso —
    o app continua funcionando, só sem o botão de criar tema. */
 const WORKER_URL    = 'https://leitura-temas.eneaspr.workers.dev';
-const WORKER_TOKEN  = 'ojuara#796216';   // o mesmo valor de APP_TOKEN no Worker
+// Criar temas, criar e remover percursos: só com o login do Bispo (e-mail e senha).
+// Ler capítulos de versões externas continua aberto para todos os leitores.
 /* ============================================================ */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { db:{ schema:'biblia' } });
+// Cliente separado só para o login do Bispo (o mesmo dos outros apps pessoais).
+// Os leitores continuam usando o "sb" acima, sem login.
+const sbDono = createClient(SUPABASE_URL, SUPABASE_KEY, { auth:{ storageKey:'bispo-auth', persistSession:true, autoRefreshToken:true } });
 
 const S = {
   leitor:null, versao:1, versoes:[], livros:[], trilhas:[],
@@ -402,7 +406,7 @@ async function capitulo(livroId, cap, versaoId=S.versao){
   // Versão externa: o texto vem do API.Bible pelo Worker e fica só
   // em memória nesta sessão — nunca é gravado no banco nem no aparelho.
   if(v?.externa){
-    if(!WORKER_URL || !WORKER_TOKEN)
+    if(!WORKER_URL)
       throw new Error('Esta versão precisa do Worker configurado.');
     const l = livro(livroId);
     const r = await chamarWorker('/passagem', {
@@ -1059,7 +1063,7 @@ async function telaTemas(){
   const percursos = (planos||[])
     .filter(p=>!p.trilhas?.cobertura_completa)
     .sort((a,b)=>(a.trilhas?.ordem_exibicao||0)-(b.trilhas?.ordem_exibicao||0));
-  const temIA = !!(WORKER_URL && WORKER_TOKEN);
+  const temIA = !!WORKER_URL;
 
   el.innerHTML = `<div class="container">
     ${S.planoAtivo?`<div class="aviso">Em andamento:
@@ -1076,8 +1080,8 @@ async function telaTemas(){
         <button class="btn" id="propor" style="margin-top:12px">Propor passagens</button>
         <div id="proposta"></div>`
       :`<p style="font-size:.9rem;color:var(--texto2);margin:8px 0 0">
-          Recurso desligado. Para ativar, preencha <code>WORKER_URL</code> e
-          <code>WORKER_TOKEN</code> no começo do index.html.</p>`}
+          Recurso desligado. Para ativar, preencha <code>WORKER_URL</code>
+          no começo do index.html.</p>`}
     </div>
 
     <div class="cartao">
@@ -1109,13 +1113,48 @@ async function telaTemas(){
   }
 }
 
-async function chamarWorker(rota, corpo){
-  const r = await fetch(WORKER_URL.replace(/\/+$/,'') + rota, {
-    method:'POST',
-    headers:{'Content-Type':'application/json','x-app-token':WORKER_TOKEN},
-    body: JSON.stringify(corpo),
+async function tokenDono(){
+  try{ const { data } = await sbDono.auth.getSession(); return data?.session?.access_token || null; }
+  catch(e){ return null; }
+}
+/* Pede e-mail e senha do Bispo na hora (só para criar temas). */
+function pedirLoginDono(msg){
+  return new Promise(resolve=>{
+    let email=''; try{ email=localStorage.getItem('bispo-email')||''; }catch(e){}
+    const d=document.createElement('div');
+    d.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(10,16,30,.6);display:flex;align-items:center;justify-content:center;padding:20px';
+    d.innerHTML=`<form style="background:#FFFDF6;color:#1B2438;border-radius:16px;padding:22px 20px;width:100%;max-width:340px;font-family:-apple-system,system-ui,sans-serif">
+      <h3 style="margin:0 0 4px;font-size:18px">Entrar como administrador</h3>
+      <p style="margin:0 0 14px;font-size:13px;color:#6b6658">${msg||'Criar temas usa a IA e só o administrador pode fazer.'}</p>
+      <input name="e" type="email" autocomplete="username" placeholder="E-mail" value="${email.replace(/"/g,'&quot;')}" style="width:100%;box-sizing:border-box;padding:11px;border:1px solid #ddd2b6;border-radius:10px;font-size:16px;margin-bottom:8px">
+      <input name="s" type="password" autocomplete="current-password" placeholder="Senha" style="width:100%;box-sizing:border-box;padding:11px;border:1px solid #ddd2b6;border-radius:10px;font-size:16px">
+      <div class="erro" style="color:#9b2c2e;font-size:13px;min-height:18px;margin:8px 0"></div>
+      <div style="display:flex;gap:8px"><button type="submit" style="flex:1;padding:11px;border:none;border-radius:10px;background:#0F1B33;color:#fff;font-weight:700">Entrar</button>
+      <button type="button" class="cancelar" style="flex:1;padding:11px;border:1px solid #ddd2b6;border-radius:10px;background:none">Cancelar</button></div></form>`;
+    document.body.appendChild(d);
+    const f=d.querySelector('form');
+    setTimeout(()=>f[email?'s':'e'].focus(),50);
+    d.querySelector('.cancelar').onclick=()=>{ d.remove(); resolve(false); };
+    f.onsubmit=async ev=>{
+      ev.preventDefault();
+      const { error } = await sbDono.auth.signInWithPassword({ email:f.e.value.trim(), password:f.s.value });
+      if(error){ d.querySelector('.erro').textContent=/invalid/i.test(error.message||'')?'E-mail ou senha incorretos.':'Sem conexão. Tente de novo.'; return; }
+      try{ localStorage.setItem('bispo-email', f.e.value.trim()); }catch(e){}
+      d.remove(); resolve(true);
+    };
   });
-  const d = await r.json();
+}
+async function chamarWorker(rota, corpo, jaTentou){
+  const tok = await tokenDono();
+  const headers = {'Content-Type':'application/json'};
+  if(tok) headers['Authorization'] = 'Bearer ' + tok;
+  const r = await fetch(WORKER_URL.replace(/\/+$/,'') + rota, {
+    method:'POST', headers, body: JSON.stringify(corpo),
+  });
+  const d = await r.json().catch(()=>({}));
+  if((r.status===401 || r.status===403) && d.login && !jaTentou){
+    if(await pedirLoginDono(d.erro)) return chamarWorker(rota, corpo, true);
+  }
   if(!r.ok || d.erro) throw new Error(d.erro || ('Falha ' + r.status));
   return d;
 }
